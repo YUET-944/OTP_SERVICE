@@ -27,7 +27,9 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install dependencies (retry + stronger fetch retries)
+      - name: Install dependencies
+        id: install
+        continue-on-error: true
         run: |
           npm cache clean --force || true
           npm config set fetch-retries 5
@@ -46,32 +48,68 @@ jobs:
           done
           if [ $attempts -ge 3 ]; then
             echo "npm ci failed after $attempts attempts"
+            # leave non-zero exit but because continue-on-error=true the workflow will continue
             exit 1
           fi
 
-      - name: Diagnose package integrity (only on failure)
-        if: failure()
+      - name: Diagnose walker tarball (runs when install failed)
+        if: steps.install.outcome == 'failure'
         run: |
-          echo "=== PACKAGE-LOCK snippet for 'walker' ==="
-          grep -n '"walker"' -A8 -B4 package-lock.json || true
-          echo
-          resolved=$(grep -n '"walker"' -A8 -B4 package-lock.json | grep -Po '"resolved"\s*:\s*"\K[^"]+' | head -1 || true)
-          expected=$(grep -n '"walker"' -A8 -B4 package-lock.json | grep -Po '"integrity"\s*:\s*"\K[^"]+' | head -1 || true)
+          set -euo pipefail
+          echo "=== package-lock.json snippet for 'walker' ==="
+          node -e "
+          const fs=require('fs');
+          const pl=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+          function find(name, node) {
+            if (!node) return null;
+            if (node.name===name) return node;
+            if (node.dependencies) {
+              if (node.dependencies[name]) return node.dependencies[name];
+              for (const k of Object.keys(node.dependencies)) {
+                const found = find(name, node.dependencies[k]);
+                if (found) return found;
+              }
+            }
+            return null;
+          }
+          // check top-level dependencies object (v2 lockfile) and packages object (v3)
+          const byDeps = pl.dependencies && find('walker', {dependencies: pl.dependencies});
+          const byPackages = pl.packages && (Object.entries(pl.packages).map(([p,v])=>({path:p,...v})).find(x=>x.name==='walker'));
+          const info = byDeps || byPackages || null;
+          if(!info){ console.log('walker not found in package-lock.json'); process.exit(0); }
+          console.log(JSON.stringify(info, null, 2));
+          " || true
+
+          # Extract resolved + integrity using node for robust parsing
+          resolved=$(node -e "const fs=require('fs');const pl=JSON.parse(fs.readFileSync('package-lock.json','utf8')); function get(n,obj){ if(!obj) return ''; if(obj.dependencies && obj.dependencies[n]) return obj.dependencies[n].resolved||''; if(obj.packages){ for(const p in obj.packages){ if(obj.packages[p].name===n) return obj.packages[p].resolved||'' } } return ''; } console.log(get('walker', pl));")
+          expected=$(node -e "const fs=require('fs');const pl=JSON.parse(fs.readFileSync('package-lock.json','utf8')); function get(n,obj){ if(!obj) return ''; if(obj.dependencies && obj.dependencies[n]) return obj.dependencies[n].integrity||''; if(obj.packages){ for(const p in obj.packages){ if(obj.packages[p].name===n) return obj.packages[p].integrity||'' } } return ''; } console.log(get('walker', pl));")
           echo "resolved=$resolved"
           echo "expected integrity=$expected"
-          if [ -n "$resolved" ]; then
-            echo "Downloading tarball and computing sha512..."
-            curl -sL "$resolved" -o /tmp/walker.tgz || (echo "curl failed"; exit 0)
-            actual=$(openssl dgst -sha512 -binary /tmp/walker.tgz | openssl base64 -A | awk '{print "sha512-"$0}')
-            echo "actual integrity=$actual"
-            if [ "$expected" = "$actual" ]; then
-              echo "Integrity matches (unexpected)."
-            else
-              echo "Integrity mismatch confirmed: expected != actual"
-            fi
-          else
-            echo "Could not find resolved URL for walker in package-lock.json"
+
+          if [ -z "$resolved" ]; then
+            echo "No resolved URL found for walker; skipping download check."
+            exit 0
           fi
+
+          echo "Downloading tarball from resolved URL..."
+          curl -sL "$resolved" -o /tmp/walker.tgz || (echo "curl failed"; exit 0)
+
+          echo "Computing sha512 of downloaded tarball..."
+          actual_base64=$(openssl dgst -sha512 -binary /tmp/walker.tgz | openssl base64 -A)
+          actual="sha512-$actual_base64"
+          echo "actual integrity=$actual"
+
+          if [ "$expected" = "$actual" ]; then
+            echo "Integrity matches (unexpected)"
+          else
+            echo "Integrity mismatch confirmed: expected != actual"
+          fi
+
+      - name: Fail if install failed
+        if: steps.install.outcome == 'failure'
+        run: |
+          echo "Install step failed previously; failing job after diagnostic"
+          exit 1
 
       - name: Build and start services (Docker Compose)
         run: |
