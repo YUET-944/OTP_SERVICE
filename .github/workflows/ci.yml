@@ -27,14 +27,18 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install dependencies (retry on transient failures)
+      - name: Install dependencies (retry + stronger fetch retries)
         run: |
+          npm cache clean --force || true
+          npm config set fetch-retries 5
+          npm config set fetch-retry-factor 10
+          npm config set fetch-retry-maxtimeout 10000
+
           attempts=0
           until [ $attempts -ge 3 ]
           do
             attempts=$((attempts+1))
             echo "npm ci attempt $attempts"
-            npm cache clean --force || true
             npm ci && break
             echo "npm ci failed; running npm cache verify and retrying (attempts=$attempts)..."
             npm cache verify || true
@@ -43,6 +47,30 @@ jobs:
           if [ $attempts -ge 3 ]; then
             echo "npm ci failed after $attempts attempts"
             exit 1
+          fi
+
+      - name: Diagnose package integrity (only on failure)
+        if: failure()
+        run: |
+          echo "=== PACKAGE-LOCK snippet for 'walker' ==="
+          grep -n '"walker"' -A8 -B4 package-lock.json || true
+          echo
+          resolved=$(grep -n '"walker"' -A8 -B4 package-lock.json | grep -Po '"resolved"\s*:\s*"\K[^"]+' | head -1 || true)
+          expected=$(grep -n '"walker"' -A8 -B4 package-lock.json | grep -Po '"integrity"\s*:\s*"\K[^"]+' | head -1 || true)
+          echo "resolved=$resolved"
+          echo "expected integrity=$expected"
+          if [ -n "$resolved" ]; then
+            echo "Downloading tarball and computing sha512..."
+            curl -sL "$resolved" -o /tmp/walker.tgz || (echo "curl failed"; exit 0)
+            actual=$(openssl dgst -sha512 -binary /tmp/walker.tgz | openssl base64 -A | awk '{print "sha512-"$0}')
+            echo "actual integrity=$actual"
+            if [ "$expected" = "$actual" ]; then
+              echo "Integrity matches (unexpected)."
+            else
+              echo "Integrity mismatch confirmed: expected != actual"
+            fi
+          else
+            echo "Could not find resolved URL for walker in package-lock.json"
           fi
 
       - name: Build and start services (Docker Compose)
