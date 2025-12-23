@@ -29,8 +29,8 @@ jobs:
 
       - name: Build and start services (Docker Compose)
         run: |
-          docker-compose down -v
-          docker-compose up --build -d
+          docker compose down -v
+          docker compose up --build -d
 
       - name: Wait for API health
         run: |
@@ -43,7 +43,7 @@ jobs:
             sleep 2
           done
           echo "API did not become healthy in time"
-          docker-compose logs
+          docker compose logs
           exit 1
 
       - name: Run linter
@@ -54,4 +54,4 @@ jobs:
 
       - name: Tear down services
         if: always()
-        run: docker-compose down -v
+        run: docker compose down -v
