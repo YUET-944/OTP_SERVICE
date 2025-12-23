@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and start services (Docker Compose)
+        run: |
+          docker-compose down -v
+          docker-compose up --build -d
+
+      - name: Wait for API health
+        run: |
+          echo "Waiting for API to become healthy..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:3000/api/health > /dev/null; then
+              echo "API is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become healthy in time"
+          docker-compose logs
+          exit 1
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run smoke tests
+        run: npm run test:smoke
+
+      - name: Tear down services
+        if: always()
+        run: docker-compose down -v
