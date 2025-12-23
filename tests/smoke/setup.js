@@ -9,6 +9,9 @@ jest.setTimeout(30000);
 // Allow overriding service hosts when tests run outside docker network
 process.env.REDIS_HOST = process.env.TEST_REDIS_HOST || process.env.REDIS_HOST || '127.0.0.1';
 process.env.PG_HOST = process.env.TEST_PG_HOST || process.env.PG_HOST || '127.0.0.1';
+process.env.PG_USER = process.env.TEST_PG_USER || process.env.PG_USER;
+process.env.PG_PASSWORD = process.env.TEST_PG_PASSWORD || process.env.PG_PASSWORD;
+process.env.PG_DATABASE = process.env.TEST_PG_DATABASE || process.env.PG_DATABASE;
 
 // Provide strong defaults for secrets required by configuration validation
 const ensureStrongSecret = (envKey, fallback) => {

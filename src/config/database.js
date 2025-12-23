@@ -1,12 +1,18 @@
 const { Pool } = require('pg');
 const logger = require('../utils/logger');
 
+const resolveEnv = (primary, fallback) => {
+  if (process.env[primary]) return process.env[primary];
+  if (fallback) return process.env[fallback];
+  return undefined;
+};
+
 const pool = new Pool({
-  host: process.env.PG_HOST || 'localhost',
-  port: Number(process.env.PG_PORT) || 5432,
-  database: process.env.PG_DATABASE || 'otp_service',
-  user: process.env.PG_USER || 'postgres',
-  password: process.env.PG_PASSWORD || 'postgres',
+  host: resolveEnv('TEST_PG_HOST', 'PG_HOST') || 'localhost',
+  port: Number(resolveEnv('TEST_PG_PORT', 'PG_PORT')) || 5432,
+  database: resolveEnv('TEST_PG_DATABASE', 'PG_DATABASE') || 'otp_service',
+  user: resolveEnv('TEST_PG_USER', 'PG_USER') || 'postgres',
+  password: resolveEnv('TEST_PG_PASSWORD', 'PG_PASSWORD') || 'postgres',
   max: Number(process.env.PG_POOL_MAX) || 10,
   idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT) || 30000,
   connectionTimeoutMillis: Number(process.env.PG_CONN_TIMEOUT) || 5000,
