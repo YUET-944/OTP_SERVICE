@@ -27,26 +27,41 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Cache npm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Configure npm for flaky networks
+        run: |
+          npm config set fetch-retries 8
+          npm config set fetch-retry-factor 10
+          npm config set fetch-retry-mintimeout 10000
+          npm config set fetch-retry-maxtimeout 20000
+
       - name: Install dependencies
         id: install
         continue-on-error: true
         run: |
-          npm cache clean --force || true
-          npm config set fetch-retries 5
-          npm config set fetch-retry-factor 10
-          npm config set fetch-retry-maxtimeout 10000
-
+          success=0
           attempts=0
           until [ $attempts -ge 3 ]
           do
             attempts=$((attempts+1))
             echo "npm ci attempt $attempts"
-            npm ci && break
-            echo "npm ci failed; running npm cache verify and retrying (attempts=$attempts)..."
+            if npm ci; then
+              success=1
+              break
+            fi
+            echo "npm ci failed; running npm cache verify/clean before retry (attempts=$attempts)..."
             npm cache verify || true
+            npm cache clean --force || true
             sleep $((attempts * 5))
           done
-          if [ $attempts -ge 3 ]; then
+          if [ $success -ne 1 ]; then
             echo "npm ci failed after $attempts attempts"
             # leave non-zero exit but because continue-on-error=true the workflow will continue
             exit 1
@@ -104,6 +119,14 @@ jobs:
           else
             echo "Integrity mismatch confirmed: expected != actual"
           fi
+
+      - name: Upload npm debug logs
+        if: steps.install.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-debug-logs
+          path: /home/runner/.npm/_logs/*.log
+          if-no-files-found: ignore
 
       - name: Fail if install failed
         if: steps.install.outcome == 'failure'
