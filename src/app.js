@@ -82,8 +82,8 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.use('/api/otp', createOtpRouter());
-app.use('/internal/otp', createAdminOtpRouter());
+app.use(['/api/otp', '/api/v1/otp'], createOtpRouter());
+app.use(['/internal/otp', '/internal/v1/otp'], createAdminOtpRouter());
 
 app.use(notFoundHandler);
 app.use(errorHandler);

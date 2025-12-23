@@ -1,17 +1,21 @@
 const path = require('path');
 const dotenv = require('dotenv');
 
-// Load env vars before importing application modules
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+// Load env vars before importing application modules (.env optional for CI)
+const envPath = path.resolve(__dirname, '../../.env');
+const { error } = dotenv.config({ path: envPath });
+if (error && error.code !== 'ENOENT') {
+  throw error;
+}
 
 jest.setTimeout(30000);
 
 // Allow overriding service hosts when tests run outside docker network
 process.env.REDIS_HOST = process.env.TEST_REDIS_HOST || process.env.REDIS_HOST || '127.0.0.1';
 process.env.PG_HOST = process.env.TEST_PG_HOST || process.env.PG_HOST || '127.0.0.1';
-process.env.PG_USER = process.env.TEST_PG_USER || process.env.PG_USER;
-process.env.PG_PASSWORD = process.env.TEST_PG_PASSWORD || process.env.PG_PASSWORD;
-process.env.PG_DATABASE = process.env.TEST_PG_DATABASE || process.env.PG_DATABASE;
+process.env.PG_USER = process.env.TEST_PG_USER || process.env.PG_USER || 'postgres';
+process.env.PG_PASSWORD = process.env.TEST_PG_PASSWORD || process.env.PG_PASSWORD || 'postgres';
+process.env.PG_DATABASE = process.env.TEST_PG_DATABASE || process.env.PG_DATABASE || 'otp_service';
 
 // Provide strong defaults for secrets required by configuration validation
 const ensureStrongSecret = (envKey, fallback) => {
